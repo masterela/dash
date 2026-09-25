@@ -31,6 +31,7 @@ mod view;
 mod world;
 
 use std::io::{self, Write};
+use std::process::ExitCode;
 
 use conui::headless::Screen;
 use conui::{App, Config, Event};
@@ -54,7 +55,23 @@ const CELL: (u16, u16) = (8, 17);
 /// than for what the renderer can manage. `--time` prints the real numbers for any given size.
 const FPS: u32 = 60;
 
-fn main() -> io::Result<()> {
+/// Not `-> io::Result<()>`, which would be shorter and would print the wrong thing.
+///
+/// Rust's own `Termination` for a `Result` prints the error's `Debug`, so the one message this program
+/// most often has to give — that there is no terminal to take over — arrived as
+/// `Error: Custom { kind: Unsupported, error: "..." }`. The sentence was in there, wrapped in a struct
+/// nobody outside this process has any business seeing.
+fn main() -> ExitCode {
+    match dispatch() {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("dash: {error}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn dispatch() -> io::Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let flag = |name: &str| args.iter().any(|arg| arg == name);
     let value = |name: &str| {

@@ -16,6 +16,12 @@ conui's hardest customer, and a change to the library has to be drivable here in
 cost is that the two directories have to sit next to each other. Once conui is published, this
 becomes a version like anything else.
 
+CI does the same thing — two checkouts, dash and conui side by side — on macOS, Linux and Windows,
+and on each of them it builds, tests, composes four frames as text, renders one as a PNG, and checks
+that a run with no terminal declines in a sentence rather than in a struct. Windows is there because
+nothing here is per-platform any more: the raw `ioctl` this used to carry went into conui, and a claim
+that a program builds anywhere is only a claim until something builds it there.
+
 The map pane is **real pixels** — a full-colour image rendered per frame and handed to the terminal
 through the kitty graphics protocol, which kitty, Ghostty and WezTerm all speak. Everything else is
 terminal cells. That split is the whole design: pixels for geometry, cells for language. The text is
