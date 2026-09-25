@@ -28,7 +28,8 @@
 //! language and gets whole cells either way, because the terminal draws text at its own resolution,
 //! which is sharper than any bitmap font this program could carry.
 
-use conui::{Canvas, Color, Frame, Rect, Role, Style, text_width};
+use conui::widget::{Hints, Reading};
+use conui::{Canvas, Color, Frame, Rect, Role, Style, View, clip, text_width};
 
 use crate::dash::{Dash, clock_text};
 use crate::dots::Dots;
@@ -452,15 +453,18 @@ fn draw_rail(canvas: &mut Canvas<'_>, dash: &Dash, plan: &Plan, skin: &'static S
 }
 
 /// One line of the rail: a dim label, a value, and a note that qualifies it. See [`VALUE`].
+///
+/// A thin wrapper over [`Reading`] rather than a call site, because the three columns and the width
+/// they collapse at are this rail's rather than the widget's, and stating them at five call sites is
+/// how one of them ends up a column out.
 fn line(canvas: &mut Canvas<'_>, y: i32, width: u16, label: &str, value: (&str, Role), note: &str) {
-    canvas.put(LABEL, y, label, Role::Dim);
     let (text, role) = value;
-    if width < NARROW {
-        canvas.put_right(i32::from(width), y, text, role);
-        return;
-    }
-    canvas.put(VALUE, y, text, role);
-    canvas.put_truncated(NOTE, y, note, width - NOTE as u16, Role::Dim);
+    let reading = Reading::new(label, text)
+        .role(role)
+        .note(note)
+        .columns(VALUE as u16, NOTE as u16)
+        .narrow(NARROW);
+    reading.render(&mut canvas.shifted(LABEL, y, width, 1));
 }
 
 /// Tier two: where we are going, when we arrive, and how much of it is left. Returns the row below it.
@@ -620,16 +624,7 @@ fn traffic(canvas: &mut Canvas<'_>, dash: &Dash, y: i32, width: u16, skin: &'sta
     // And where, once there is a where. The word is in the value column when there are no minutes to
     // put there, so the street stands on its own rather than being labelled twice.
     if let (Some((street, _)), true) = (worst, jam >= world::BUSY) {
-        canvas.put_styled(NOTE, y, &clip(street, width - NOTE as u16), style);
-    }
-}
-
-/// `text`, cut to fit — by characters, because every second street here has an accent in it and a
-/// byte slice through one is a panic rather than an ellipsis.
-fn clip(text: &str, cols: u16) -> String {
-    match text_width(text) <= cols {
-        true => text.to_string(),
-        false => text.chars().take(usize::from(cols)).collect(),
+        canvas.put_styled(NOTE, y, clip(street, width - NOTE as u16), style);
     }
 }
 
@@ -706,7 +701,7 @@ fn search(canvas: &mut Canvas<'_>, dash: &Dash, width: u16, span: (i32, i32)) ->
     // The query with a cursor on it, because a text field with no cursor is a label.
     let shown = format!("/{}▏", search.text);
     let role = if search.text.is_empty() { Role::Dim } else { Role::Text };
-    canvas.put(VALUE + 1, top + 1, &clip(&shown, width - VALUE as u16 - 1), role);
+    canvas.put(VALUE + 1, top + 1, clip(&shown, width - VALUE as u16 - 1), role);
 
     // A rule, the query and the count are the three rows that are not the list.
     let rows = (bottom - top - 3).max(0);
@@ -802,19 +797,17 @@ fn footer(canvas: &mut Canvas<'_>, dash: &Dash) {
         ]
     };
 
-    let mut x = 0;
-    let room = i32::from(width) - i32::from(text_width(&dash.status)) - 2;
-    for (key, word) in keys {
-        let wide = i32::from(text_width(key)) + 1 + i32::from(text_width(word));
-        if x + wide > room {
-            break;
-        }
-        x += i32::from(canvas.put(x, 0, key, Role::Accent)) + 1;
-        x += i32::from(canvas.put(x, 0, word, Role::Dim)) + 2;
-    }
-
+    // The status holds the right edge and the keys give way to it, which is the whole reason this is
+    // one widget: the room has to come out of the legend before it is filled, and a status drawn
+    // afterwards can only overwrite whatever got there first.
     let role = if dash.paused { Role::Warn } else { Role::Muted };
-    canvas.put_right(i32::from(width), 0, &dash.status, role);
+    let hints = keys
+        .iter()
+        .fold(Hints::new().spacing(2), |hints, (key, word)| hints.key(*key, *word))
+        .emphasise_keys()
+        .role(Role::Dim)
+        .trailing(&dash.status, role);
+    hints.render(&mut canvas.shifted(0, 0, width, 1));
 }
 
 /// Metres under a kilometre, kilometres above it, the way a navigator says it.
