@@ -30,9 +30,10 @@ mod ui;
 mod view;
 mod world;
 
-use std::io;
+use std::io::{self, Write};
 
-use conui::{App, Buffer, Config, Event, Frame};
+use conui::headless::Screen;
+use conui::{App, Config, Event};
 
 use crate::dash::{Dash, Search};
 use crate::kitty::Medium;
@@ -205,17 +206,11 @@ fn dump(
     let dash = dash;
     let plan = ui::plan(&dash, width, height, Paint::Dots, skin);
 
-    let mut buffer = Buffer::new(width, height);
-    let mut frame = Frame::new(&mut buffer, skin.theme);
-    ui::compose(&mut frame, &dash, &plan, skin);
-
-    let mut out = String::new();
-    for row in 0..height {
-        out.push_str(buffer.row_text(row).trim_end());
-        out.push('\n');
-    }
-    print!("{out}");
-    Ok(())
+    let mut screen = Screen::themed(width, height, skin.theme);
+    screen.draw(|frame| ui::compose(frame, &dash, &plan, skin));
+    // One write rather than a `print!` per row: a dump exists to be piped, and `--dump | head -3`
+    // would abort on the broken pipe partway through.
+    io::stdout().write_all(screen.to_string().as_bytes())
 }
 
 /// One map pane, as a PNG, which is how the pixel render gets checked without a terminal.

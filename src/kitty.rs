@@ -59,37 +59,13 @@ impl Graphics {
     /// Worth asking rather than guessing: on a high-density display a cell is nearer 16x34 than
     /// 8x17, and rendering at half the real size means the terminal scales the map up and every
     /// edge this renderer took care over comes back blurred.
+    ///
+    /// This used to be a raw `ioctl` with a request constant per operating system, written here
+    /// because conui read the two pixel fields of `winsize` and threw them away. It asks the library
+    /// now, which is where the question belonged: a terminal's own dimensions are not a dashboard's
+    /// business, and the app that needed them had ended up with the only `unsafe` in it.
     pub fn cell_size() -> Option<(u16, u16)> {
-        #[cfg(unix)]
-        {
-            use std::os::raw::{c_int, c_ulong};
-
-            #[repr(C)]
-            struct Winsize {
-                rows: u16,
-                cols: u16,
-                width: u16,
-                height: u16,
-            }
-
-            const REQUEST: c_ulong = if cfg!(target_os = "linux") { 0x5413 } else { 0x4008_7468 };
-            unsafe extern "C" {
-                fn ioctl(fd: c_int, request: c_ulong, ...) -> c_int;
-            }
-
-            let mut size = Winsize { rows: 0, cols: 0, width: 0, height: 0 };
-            // SAFETY: the kernel writes four `u16`s into a struct that is exactly four `u16`s, and a
-            // failed call leaves the zeroes that the guard below rejects.
-            let answered = unsafe { ioctl(1, REQUEST, &raw mut size) } == 0;
-            if answered && size.rows > 0 && size.cols > 0 && size.width > 0 && size.height > 0 {
-                // Clamped, because a wrong answer here is paid for in pixels on every frame.
-                return Some((
-                    (size.width / size.cols).clamp(4, 20),
-                    (size.height / size.rows).clamp(8, 44),
-                ));
-            }
-        }
-        None
+        conui::cell_pixels()
     }
 
     pub fn new(medium: Medium) -> Graphics {

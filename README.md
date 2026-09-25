@@ -470,6 +470,16 @@ spends the 8 bits a cell has on geometry and gets a legible city out of it; the 
 few hundred per cell and gets a map. Neither wants to draw the rail, and the rail does not want to
 be pixels.
 
-The next step is a conui widget for it — a surface a caller fills and a backend places, with the
-kitty protocol as one backend and a Linux framebuffer as another — so a dashboard bolted to a car
-does not need a terminal at all.
+It is also conui's hardest customer, and four things have already gone back the other way. The rail's
+three-column rows are `conui::widget::Reading` now; the footer is `Hints` with a trailing status,
+which is worth one widget rather than a hand-rolled loop because the room for the status has to come
+out of the legend *before* it is filled, and a status drawn afterwards can only overwrite whatever got
+there first. `--dump` is `conui::headless::Screen`, which is also how the text art above is produced.
+And `Graphics::cell_size` was the only `unsafe` in this program — a raw `ioctl` with a request
+constant per operating system, written here because conui read the two pixel fields of `winsize` and
+threw them away. It is `conui::cell_pixels()` now. A dashboard has no business knowing what
+`TIOCGWINSZ` is on a BSD.
+
+The next step is a conui widget for the picture itself — a surface a caller fills and a backend
+places, with the kitty protocol as one backend and a Linux framebuffer as another — so a dashboard
+bolted to a car does not need a terminal at all.
