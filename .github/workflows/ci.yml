@@ -1,0 +1,167 @@
+# Builds and tests on the three platforms, and renders a frame on each of them.
+#
+# Two checkouts, which is the one unusual thing here. `Cargo.toml` depends on conui by path —
+# `../conui/crates/conui` — deliberately, so that a change to the library can be driven from this app
+# in the same edit rather than through a commit, a push and a git revision. That only works if conui
+# is a sibling directory, so this file puts one there.
+#
+# The cost is honest and worth stating: this workflow checks out conui's `main`, so dash can go red
+# because of a commit that was never made here. That is exactly what the path dependency means on a
+# developer's machine too, and finding out about it from a build is better than finding out about it
+# from a broken `cargo run`.
+#
+# The Windows job earns its place by what it no longer has to compile. Until conui exported
+# `cell_pixels`, `src/kitty.rs` carried a raw `ioctl` behind `cfg(unix)` and the whole pixel path was
+# structurally unavailable on Windows. There is no `unsafe` and no per-platform code in this crate now,
+# so the claim "this builds anywhere" is a claim, and this is what tests it.
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  test:
+    name: test · ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: dash
+    strategy:
+      # Every platform reports, rather than the first failure hiding the other two.
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: dash
+
+      # The sibling the path dependency expects. Public, so no token.
+      - uses: actions/checkout@v4
+        with:
+          repository: masterela/conui
+          path: conui
+
+      - name: Install stable
+        run: |
+          rustup update stable --no-self-update
+          rustup default stable
+          rustup component add clippy
+
+      - name: Versions
+        run: cargo --version --verbose && rustc --version --verbose
+
+      - name: Build
+        run: cargo build --all-targets
+
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Test
+        run: cargo test --all-targets
+
+      # The text layer, at the four shapes that change it: the size the README shows, one narrow
+      # enough to collapse the rail's three columns into two, the light skin, and the search overlay —
+      # which has no other way to be seen without a keyboard.
+      - name: Compose a frame
+        run: |
+          cargo run -q -- --dump 160 44
+          cargo run -q -- --dump 90 30
+          cargo run -q -- --dump 120 34 12 --light
+          cargo run -q -- --dump 140 40 12 --find hos
+
+      # The pixel layer, which no test reaches: the rasteriser and the PNG encoder only ever run
+      # through this flag. A frame that panics half way through painting a band is a frame the layout
+      # tests pass on regardless, because they never ask for one.
+      - name: Render the map
+        shell: bash
+        run: |
+          cargo run -q -- --png map.png 160 44
+          test -s map.png
+          # `-a`, because BSD grep exits 1 on binary input whether it matched or not.
+          head -c 8 map.png | grep -qa PNG || { echo "map.png is not a PNG"; exit 1; }
+          rm map.png
+
+      # A CI box has no terminal, which makes it the only place this can be checked. The program must
+      # decline, and must decline in a sentence: `main` returns an `ExitCode` rather than an
+      # `io::Result` precisely so that Rust's own `Termination` does not print the error's `Debug` at
+      # somebody who only wanted to know why nothing happened.
+      - name: Refuse a redirected stdin
+        shell: bash
+        run: |
+          if cargo run -q -- < /dev/null > out.txt 2> err.txt; then
+            echo "dash ran to completion with no terminal, which it cannot have done"
+            exit 1
+          fi
+          if ! grep -q 'needs an interactive terminal' err.txt; then
+            echo "dash failed, but not with a message anybody can act on:"
+            cat err.txt
+            exit 1
+          fi
+          if grep -q 'kind: Unsupported' err.txt; then
+            echo "dash printed the error struct rather than its message:"
+            cat err.txt
+            exit 1
+          fi
+          cat err.txt
+          rm -f out.txt err.txt
+
+  fmt:
+    name: fmt
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: dash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: dash
+
+      # Needed even to format: `cargo fmt` resolves the manifest first, and a path dependency that is
+      # not there is a manifest that does not resolve.
+      - uses: actions/checkout@v4
+        with:
+          repository: masterela/conui
+          path: conui
+
+      # Formatting is the one check that cannot differ by platform, so it runs once.
+      - name: Install stable
+        run: |
+          rustup update stable --no-self-update
+          rustup default stable
+          rustup component add rustfmt
+
+      - name: Format
+        run: cargo fmt --all -- --check
+
+  msrv:
+    name: msrv · 1.85
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: dash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: dash
+
+      - uses: actions/checkout@v4
+        with:
+          repository: masterela/conui
+          path: conui
+
+      # The manifest claims `rust-version = "1.85"`, the first release with edition 2024, and so does
+      # conui's. A claim nothing checks is a claim that drifts the first time a newer API looks handy.
+      - name: Install 1.85
+        run: rustup toolchain install 1.85 --profile minimal --no-self-update
+
+      - name: Check
+        run: cargo +1.85 check --all-targets
