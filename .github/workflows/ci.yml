@@ -86,9 +86,13 @@ jobs:
         run: |
           cargo run -q -- --png map.png 160 44
           test -s map.png
-          # `-a`, because BSD grep exits 1 on binary input whether it matched or not.
-          head -c 8 map.png | grep -qa PNG || { echo "map.png is not a PNG"; exit 1; }
-          rm map.png
+          # The whole signature, and no pipe. `head -c 8 | grep -q PNG` looks tidier and fails on a
+          # runner: `grep -q` exits the moment it matches, `head` takes the SIGPIPE, and the shell
+          # these steps run in has `pipefail` set, so a successful check reports 141.
+          head -c 8 map.png > magic
+          printf '\211PNG\r\n\032\n' > signature
+          cmp signature magic || { echo "map.png does not start like a PNG"; exit 1; }
+          rm map.png magic signature
 
       # A CI box has no terminal, which makes it the only place this can be checked. The program must
       # decline, and must decline in a sentence: `main` returns an `ExitCode` rather than an
