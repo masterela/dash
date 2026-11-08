@@ -489,3 +489,7 @@ threw them away. It is `conui::cell_pixels()` now. A dashboard has no business k
 The next step is a conui widget for the picture itself — a surface a caller fills and a backend
 places, with the kitty protocol as one backend and a Linux framebuffer as another — so a dashboard
 bolted to a car does not need a terminal at all.
+
+## License
+
+MIT or Apache-2.0, at your option (same as [conui](https://github.com/masterela/conui)).
